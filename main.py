@@ -83,23 +83,24 @@ def get_secrets():
     import os
     import subprocess
 
-    def from_keychain(key):
+    def from_keychain(service):
         try:
             result = subprocess.run(
-                ["security", "find-generic-password", "-s", "meteo_telegram", "-a", key, "-w"],
+                ["security", "find-generic-password", "-s", service, "-w"],
                 capture_output=True, text=True, check=True,
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return None
 
-    token = os.environ.get("TELEGRAM_BOT_TOKEN") or from_keychain("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or from_keychain("TELEGRAM_CHAT_ID")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or from_keychain("telegram-bot-token")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or from_keychain("telegram-chat-id")
 
     if not token or not chat_id:
         raise RuntimeError(
             "Secrets manquants. Définir TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID "
-            "(env vars ou Keychain macOS, service=meteo_telegram)."
+            "(env vars), ou stocker via Keychain macOS sous les services "
+            "'telegram-bot-token' et 'telegram-chat-id'."
         )
     return token, chat_id
 
