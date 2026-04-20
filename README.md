@@ -1,18 +1,18 @@
-# 260519-Weather — Bulletin météo quotidien Telegram
+# 260519-Weather — Daily Weather Bulletin via Telegram
 
-> Un message automatique chaque matin à **6h** (Paris, primaire) ou **7h** (backup) pour savoir comment s'habiller et si la journée présente un risque d'orage/grêle à Saint-Ismier (38330, Isère).
+> An automated message every morning at **6 AM** (Paris, primary) or **7 AM** (backup) with everything needed to choose what to wear and whether the day carries a risk of thunderstorm or hail in Saint-Ismier (38330, Isère, France).
 
-## Problème résolu
+## Problem solved
 
-Consulter une appli météo chaque matin est une friction : il faut ouvrir l'app, lire plusieurs écrans, synthétiser. On veut l'info **poussée**, pré-digérée, au moment où elle est utile (au réveil). Les critères utiles *pour cette personne* :
+Opening a weather app every morning is friction: launch the app, navigate multiple screens, synthesize the information yourself. This project **pushes** the relevant data, pre-digested, at the right moment (on waking). The criteria that matter for this specific user:
 
-- Température min/max et créneaux de la journée pour choisir les vêtements
-- Durée d'ensoleillement totale
-- Pluie cumulée
-- Risque de grêle (gradué, sans jargon)
-- Comparaison avec la veille (pour savoir si on s'habille différemment)
+- Min/max temperature and hourly slots to pick clothing
+- Total sunshine duration
+- Cumulative rainfall
+- Hail risk (graduated, no jargon)
+- Comparison with yesterday (to know whether to dress differently)
 
-## Exemple de message
+## Sample message
 
 ```
 🌤️ Météo Saint-Ismier — dimanche 19 avril
@@ -40,137 +40,137 @@ Consulter une appli météo chaque matin est une friction : il faut ouvrir l'app
 │ GitHub Actions  │────────────────────▶│ main.py (runner)     │
 │ (daily.yml)     │                     │                      │
 └─────────────────┘                     │  1. fetch Open-Meteo │
-                                        │  2. extraire 7       │
-                ┌──────────────────────┐│     créneaux + agrég.│
-                │   Open-Meteo API     │◀┤  3. calcul grêle,   │
-                │ (gratuit, sans clé)  │ │     veste           │
-                └──────────────────────┘ │  4. charger veille  │
+                                        │  2. extract 7        │
+                ┌──────────────────────┐│     slots + aggreg. │
+                │   Open-Meteo API     │◀┤  3. compute hail,   │
+                │ (free, no key)       │ │     jacket          │
+                └──────────────────────┘ │  4. load yesterday  │
                                          │     (data/*.json)   │
-                ┌──────────────────────┐ │  5. formater HTML   │
-                │  Telegram Bot API    │◀┤  6. envoyer message │
-                └──────────────────────┘ │  7. sauver du jour  │
+                ┌──────────────────────┐ │  5. format HTML     │
+                │  Telegram Bot API    │◀┤  6. send message    │
+                └──────────────────────┘ │  7. save today      │
                          │               └──────────────────────┘
                          ▼                          │
-                   📱 Message reçu                  ▼
+                   📱 Message received              ▼
                                           git commit + push
                                           (data/YYYY-MM-DD.json)
 ```
 
-### Flux d'exécution
+### Execution flow
 
-1. GitHub Actions déclenche le workflow à 4h, 5h **et** 6h UTC (triple cron pour couvrir 6h Paris primaire + 7h backup, hiver et été).
-2. Le script vérifie qu'il est bien **6h ou 7h** heure de Paris — sinon sortie silencieuse (évite double envoi). Un run manuel (`workflow_dispatch`) bypasse cette garde via `FORCE_SEND=1`.
-3. Appel Open-Meteo (hourly : temp, précip, couverture nuageuse, weathercode, sunshine) pour la journée.
-4. Extraction de 7 créneaux : **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
-5. Calcul des agrégats journaliers + heuristique grêle + recommandation veste.
-6. Lecture de `data/<hier>.json` si présent → calcul Δmin/Δmax.
-7. Envoi Telegram (HTML, `sendMessage`).
-8. Écriture de `data/<aujourd'hui>.json` + commit automatique dans le repo.
+1. GitHub Actions triggers the workflow at 4h, 5h **and** 6h UTC (triple cron to cover 6 AM Paris primary + 7 AM backup, both summer and winter time).
+2. The script checks that it is **6 AM or 7 AM** Paris time — otherwise it exits silently (prevents duplicate sends). A manual run (`workflow_dispatch`) bypasses this guard via `FORCE_SEND=1`.
+3. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) for the day.
+4. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
+5. Compute daily aggregates + hail heuristic + jacket recommendation.
+6. Read `data/<yesterday>.json` if present → compute Δmin/Δmax.
+7. Send Telegram message (HTML, `sendMessage`).
+8. Write `data/<today>.json` + auto-commit to the repo.
 
 ## Stack
 
-| Composant | Choix | Pourquoi |
+| Component | Choice | Why |
 |---|---|---|
-| Données météo | [Open-Meteo](https://open-meteo.com) | Gratuit, sans clé API, couverture Europe fiable |
-| Langage | Python 3.12 (runner) / 3.9 (local) | Simplicité, écosystème `requests` |
-| Dépendances | `requests` uniquement | Éviter la surcharge (`python-telegram-bot` remplacé par POST direct) |
-| Planification | GitHub Actions cron | Gratuit, zéro infra, sans serveur 24/7 |
-| Notification | Telegram Bot API | Bot existant réutilisé du projet `260418-Telegram` |
-| Persistance | JSON commité dans le repo (`data/`) | Runner éphémère → commit auto ; bonus : historique public |
-| Secrets | GitHub Secrets (prod) · Keychain macOS (local) | Aucun secret dans le code, repo public safe |
+| Weather data | [Open-Meteo](https://open-meteo.com) | Free, no API key, reliable European coverage |
+| Language | Python 3.12 (runner) / 3.9 (local) | Simplicity, `requests` ecosystem |
+| Dependencies | `requests` only | Avoid bloat (`python-telegram-bot` replaced by direct POST) |
+| Scheduling | GitHub Actions cron | Free, zero infrastructure, no 24/7 server |
+| Notification | Telegram Bot API | Existing bot reused from project `260418-Telegram` |
+| Persistence | JSON committed to the repo (`data/`) | Ephemeral runner → auto-commit; bonus: public history |
+| Secrets | GitHub Secrets (prod) · macOS Keychain (local) | No secret in code, repo is safely public |
 
-## Décisions d'architecture
+## Architecture decisions
 
-### Pourquoi GitHub Actions, pas Docker/serveur ?
+### Why GitHub Actions and not Docker/server?
 
-Ce projet est un cron de 10 secondes par jour, sans service web. Un container Docker sur un serveur 24/7 serait **surdimensionné** pour ça. GitHub Actions fournit :
-- Un runner gratuit à la demande
-- Un cron intégré
-- Une gestion native des secrets
-- Zéro infrastructure à maintenir
+This project is a 10-second daily cron with no web service. A Docker container on a 24/7 server would be **overkill**. GitHub Actions provides:
+- An on-demand free runner
+- A built-in cron scheduler
+- Native secret management
+- Zero infrastructure to maintain
 
-Docker aurait eu du sens si on avait une API HTTP, un dashboard ou un process long.
+Docker would make sense if there were an HTTP API, a dashboard, or a long-running process.
 
-### Pourquoi repo public ?
+### Why a public repo?
 
-Pas de contenu sensible dans le code. Les secrets (token bot, chat_id) sont dans **GitHub Secrets**, jamais commités. Le *secret scanning* + *push protection* sont activés. Bénéfices : historique météo visible, transparence, réutilisable par d'autres.
+No sensitive content in the code. Secrets (bot token, chat_id) are in **GitHub Secrets**, never committed. *Secret scanning* + *push protection* are enabled. Benefits: visible weather history, transparency, reusable by others.
 
-### Heuristique grêle (XS/S/L/XL, sans M)
+### Hail heuristic (XS/S/L/XL, no M)
 
-Open-Meteo ne fournit pas de "prévision grêle" directe. On la **dérive des codes WMO** :
+Open-Meteo does not provide a direct "hail forecast". It is **derived from WMO codes**:
 
-| Taille | Condition |
+| Size | Condition |
 |---|---|
-| **XL** | Code 99 présent (orage avec grêle dense) |
-| **L** | Code 96 (grêle légère) **ou** code 95 + précip > 5 mm/h sur un créneau |
-| **S** | Code 95 (orage) **ou** précip > 2 mm/h sur un créneau |
-| **XS** | Aucune des conditions ci-dessus |
+| **XL** | Code 99 present (thunderstorm with heavy hail) |
+| **L** | Code 96 (slight hail) **or** code 95 + precip > 5 mm/h on any slot |
+| **S** | Code 95 (thunderstorm) **or** precip > 2 mm/h on any slot |
+| **XS** | None of the above |
 
-Proxy honnête — pas une prévision professionnelle, mais suffisant pour décider d'annuler un barbecue.
+An honest proxy — not a professional forecast, but sufficient to decide whether to cancel a barbecue.
 
-### Recommandation de veste
+### Jacket recommendation
 
-| Temp moyenne (min+max)/2 | Veste |
+| Average temp (min+max)/2 | Jacket |
 |---|---|
-| < 10°C | 🧥 Manteau violet |
-| 10–20°C | 🦺 Gilet / veste blanche |
-| > 20°C | Aucune |
+| < 10°C | 🧥 Purple coat |
+| 10–20°C | 🦺 White vest / jacket |
+| > 20°C | None |
 
-Logique personnelle du destinataire — garde-robe dédiée, pas générique.
+Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
-### Gestion du changement d'heure (DST)
+### DST handling
 
-GitHub Actions cron tourne **en UTC**. Les heures cibles sont **6h Paris** (primaire) et **7h Paris** (backup) :
+GitHub Actions cron runs **in UTC**. The target delivery times are **6 AM Paris** (primary) and **7 AM Paris** (backup):
 
-| Heure Paris | UTC été | UTC hiver |
+| Paris time | UTC summer | UTC winter |
 |---|---|---|
-| 6h | 4h UTC | 5h UTC |
-| 7h | 5h UTC | 6h UTC |
+| 6 AM | 4h UTC | 5h UTC |
+| 7 AM | 5h UTC | 6h UTC |
 
-Solution retenue : **triple cron** (4h, 5h, 6h UTC) + garde dans le script qui vérifie `datetime.now(Europe/Paris).hour in (6, 7)`, sinon exit silencieux. Un run manuel via `workflow_dispatch` met `FORCE_SEND=1` et bypasse la garde. Simple, robuste, pas de lib tierce.
+Solution: **triple cron** (4h, 5h, 6h UTC) + a guard in the script that checks `datetime.now(Europe/Paris).hour in (6, 7)`, otherwise silent exit. A manual `workflow_dispatch` run sets `FORCE_SEND=1` and bypasses the guard. Simple, robust, no third-party library.
 
-### Persistance "données de la veille"
+### "Yesterday's data" persistence
 
-Le runner GitHub Actions est éphémère — impossible de garder un fichier entre deux runs sans artifact. Choix : **commit automatique** du JSON quotidien dans `data/` via `GITHUB_TOKEN` (permission `contents: write`). Bénéfices :
-- Simple, natif, zéro dépendance
-- Historique météo consultable sur GitHub
-- Pas de stockage externe à gérer
+The GitHub Actions runner is ephemeral — impossible to keep a file between two runs without an artifact. Solution: **auto-commit** the daily JSON to `data/` via `GITHUB_TOKEN` (permission `contents: write`). Benefits:
+- Simple, native, zero dependency
+- Weather history browsable on GitHub
+- No external storage to manage
 
 ## Setup
 
-### Secrets GitHub
+### GitHub Secrets
 
-Dans **Settings → Secrets and variables → Actions**, ajouter :
+In **Settings → Secrets and variables → Actions**, add:
 
-| Secret | Valeur |
+| Secret | Value |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Token du bot (via [@BotFather](https://t.me/BotFather)) |
-| `TELEGRAM_CHAT_ID` | ID du chat/groupe destinataire |
+| `TELEGRAM_BOT_TOKEN` | Bot token (via [@BotFather](https://t.me/BotFather)) |
+| `TELEGRAM_CHAT_ID` | Target chat/group ID |
 
-### Test local (macOS)
+### Local testing (macOS)
 
 ```bash
 pip install requests
 
-# Option A — variables d'env
+# Option A — environment variables
 TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy python3 main.py
 
-# Option B — Keychain macOS (fallback automatique)
-security add-generic-password -a "$USER" -s telegram-bot-token -w "LE_TOKEN"
-security add-generic-password -a "$USER" -s telegram-chat-id   -w "LE_CHAT_ID"
+# Option B — macOS Keychain (automatic fallback)
+security add-generic-password -a "$USER" -s telegram-bot-token -w "THE_TOKEN"
+security add-generic-password -a "$USER" -s telegram-chat-id   -w "THE_CHAT_ID"
 python3 main.py
 ```
 
-### Déclencher un run manuel
+### Trigger a manual run
 
-Via l'UI GitHub : onglet *Actions* → *Bulletin météo quotidien* → *Run workflow*.
+Via the GitHub UI: *Actions* tab → *Bulletin météo quotidien* → *Run workflow*.
 
-## Sécurité
+## Security
 
-- Aucun secret en dur dans le code ni dans l'historique git
-- *Secret scanning* + *push protection* activés sur le repo
-- Le bot Telegram n'envoie qu'au `chat_id` configuré (pas d'écoute de messages entrants)
+- No hardcoded secret in the code or git history
+- *Secret scanning* + *push protection* enabled on the repo
+- The Telegram bot only sends to the configured `chat_id` (no inbound message listening)
 
-## Licence
+## License
 
-Usage personnel.
+Personal use.
