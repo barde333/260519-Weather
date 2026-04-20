@@ -283,6 +283,24 @@ def send_alert(token, chat_id, error: Exception):
 
 def main():
     """Orchestration du bulletin météo quotidien."""
+    import datetime, os
+
+    # Garde : les crons UTC couvrent 4h/5h/6h, mais seuls ceux qui tombent
+    # sur 6h ou 7h Paris doivent envoyer. On autorise un bypass via
+    # FORCE_SEND=1 pour les déclenchements manuels (workflow_dispatch, local).
+    if not os.environ.get("FORCE_SEND"):
+        paris_hour = datetime.datetime.now(PARIS_TZ).hour
+        if paris_hour not in (6, 7):
+            logger.info(f"Hors créneau (Paris {paris_hour}h) → exit silencieux")
+            return
+
+        # Dédup : si le bulletin du jour a déjà été envoyé (fichier présent),
+        # le cron backup 7h sort sans rien faire.
+        today = datetime.datetime.now(PARIS_TZ).date().isoformat()
+        if (DATA_DIR / f"{today}.json").exists():
+            logger.info("Bulletin déjà envoyé aujourd'hui → exit silencieux")
+            return
+
     token, chat_id = None, None
     try:
         token, chat_id = get_secrets()
@@ -296,8 +314,8 @@ def main():
         yesterday = load_yesterday()
 
         message = build_telegram_message(hourly, daily, jacket, hail, yesterday)
-        save_today({"hourly": hourly, "daily": daily, "hail": hail})
         send_telegram(token, chat_id, message)
+        save_today({"hourly": hourly, "daily": daily, "hail": hail})
 
         logger.info("✓ Bulletin envoyé")
 

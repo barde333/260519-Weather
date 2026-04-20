@@ -2,7 +2,10 @@ name: Bulletin météo quotidien
 
 on:
   schedule:
-    # Double cron UTC pour couvrir heure d'hiver (6h UTC) et heure d'été (5h UTC)
+    # Couvre 6h Paris (primaire) + 7h Paris (backup), hiver et été.
+    # 6h Paris = 4h UTC (été) / 5h UTC (hiver)
+    # 7h Paris = 5h UTC (été) / 6h UTC (hiver)
+    - cron: "0 4 * * *"
     - cron: "0 5 * * *"
     - cron: "0 6 * * *"
   workflow_dispatch:
@@ -30,6 +33,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Déclenchement manuel → bypass garde horaire/dédup
+          FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python main.py
 
       - name: Commit données du jour
