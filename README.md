@@ -1,6 +1,6 @@
 # 260519-Weather — Bulletin météo quotidien Telegram
 
-> Un message automatique chaque matin à 7h (Paris) pour savoir comment s'habiller et si la journée présente un risque d'orage/grêle à Saint-Ismier (38330, Isère).
+> Un message automatique chaque matin à **6h** (Paris, primaire) ou **7h** (backup) pour savoir comment s'habiller et si la journée présente un risque d'orage/grêle à Saint-Ismier (38330, Isère).
 
 ## Problème résolu
 
@@ -36,7 +36,7 @@ Consulter une appli météo chaque matin est une friction : il faut ouvrir l'app
 ## Architecture
 
 ```
-┌─────────────────┐   cron 5h+6h UTC    ┌──────────────────────┐
+┌─────────────────┐   cron 4h+5h+6h UTC ┌──────────────────────┐
 │ GitHub Actions  │────────────────────▶│ main.py (runner)     │
 │ (daily.yml)     │                     │                      │
 └─────────────────┘                     │  1. fetch Open-Meteo │
@@ -58,8 +58,8 @@ Consulter une appli météo chaque matin est une friction : il faut ouvrir l'app
 
 ### Flux d'exécution
 
-1. GitHub Actions déclenche le workflow à 5h **et** 6h UTC (double cron pour absorber le changement d'heure).
-2. Le script vérifie qu'il est bien 7h heure de Paris — sinon sortie silencieuse (évite double envoi).
+1. GitHub Actions déclenche le workflow à 4h, 5h **et** 6h UTC (triple cron pour couvrir 6h Paris primaire + 7h backup, hiver et été).
+2. Le script vérifie qu'il est bien **6h ou 7h** heure de Paris — sinon sortie silencieuse (évite double envoi). Un run manuel (`workflow_dispatch`) bypasse cette garde via `FORCE_SEND=1`.
 3. Appel Open-Meteo (hourly : temp, précip, couverture nuageuse, weathercode, sunshine) pour la journée.
 4. Extraction de 7 créneaux : **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
 5. Calcul des agrégats journaliers + heuristique grêle + recommandation veste.
@@ -120,7 +120,14 @@ Logique personnelle du destinataire — garde-robe dédiée, pas générique.
 
 ### Gestion du changement d'heure (DST)
 
-GitHub Actions cron tourne **en UTC**. 7h Paris = 5h UTC (été) ou 6h UTC (hiver). Solution retenue : **double cron** (5h et 6h UTC) + garde dans le script qui vérifie `datetime.now(Europe/Paris).hour == 7`, sinon exit silencieux. Simple, robuste, pas de lib tierce.
+GitHub Actions cron tourne **en UTC**. Les heures cibles sont **6h Paris** (primaire) et **7h Paris** (backup) :
+
+| Heure Paris | UTC été | UTC hiver |
+|---|---|---|
+| 6h | 4h UTC | 5h UTC |
+| 7h | 5h UTC | 6h UTC |
+
+Solution retenue : **triple cron** (4h, 5h, 6h UTC) + garde dans le script qui vérifie `datetime.now(Europe/Paris).hour in (6, 7)`, sinon exit silencieux. Un run manuel via `workflow_dispatch` met `FORCE_SEND=1` et bypasse la garde. Simple, robuste, pas de lib tierce.
 
 ### Persistance "données de la veille"
 
