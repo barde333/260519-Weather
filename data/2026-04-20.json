@@ -1,0 +1,67 @@
+{
+  "hourly": [
+    {
+      "hour": 8,
+      "temp": 9.9,
+      "precip": 0.0,
+      "cloud": 0,
+      "code": 0,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 10,
+      "temp": 13.3,
+      "precip": 0.0,
+      "cloud": 0,
+      "code": 0,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 12,
+      "temp": 17.1,
+      "precip": 0.0,
+      "cloud": 10,
+      "code": 1,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 14,
+      "temp": 19.9,
+      "precip": 0.0,
+      "cloud": 73,
+      "code": 2,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 16,
+      "temp": 21.0,
+      "precip": 0.0,
+      "cloud": 74,
+      "code": 2,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 18,
+      "temp": 20.6,
+      "precip": 0.0,
+      "cloud": 52,
+      "code": 2,
+      "sunshine_s": 3600.0
+    },
+    {
+      "hour": 20,
+      "temp": 18.3,
+      "precip": 0.0,
+      "cloud": 77,
+      "code": 3,
+      "sunshine_s": 3600.0
+    }
+  ],
+  "daily": {
+    "temp_min": 9.9,
+    "temp_max": 21.0,
+    "precipitation_sum": 0.0,
+    "sunshine_hours": 13.0
+  },
+  "hail": "XS"
+}
