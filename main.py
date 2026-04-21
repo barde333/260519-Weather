@@ -210,9 +210,8 @@ def build_telegram_message(hourly, daily, jacket, hail, yesterday):
     else:
         lines.append(f"👕 Pas de veste aujourd'hui ({temp_min}–{temp_max}°C)")
 
-    lines.append(f"☀️ Ensoleillement : {sun_str}")
-    lines.append(f"🌧️ Pluie totale : {daily['precipitation_sum']} mm")
-    lines.append(f"🧊 Risque de grêle : {hail}")
+    hail_icon = {"XL": "🔴", "L": "🟠", "S": "🟢", "XS": "🟢"}.get(hail, "")
+    lines.append(f"🧊 Risque de grêle : {hail} {hail_icon}")
     lines.append("")
     lines.append("⏰ <b>Créneaux :</b>")
 
