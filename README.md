@@ -1,6 +1,6 @@
 # 260519-Weather — Daily Weather Bulletin via Telegram
 
-> An automated message every morning at **6 AM** (Paris, primary) or **7 AM** (backup) with everything needed to choose what to wear and whether the day carries a risk of thunderstorm or hail in Saint-Ismier (38330, Isère, France).
+> An automated message every morning at **6:00, 6:30 or 7:00 AM** Paris time (3 attempts 30 min apart) with everything needed to choose what to wear and whether the day carries a risk of thunderstorm or hail in Saint-Ismier (38330, Isère, France).
 
 ## Problem solved
 
@@ -36,7 +36,7 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 ## Architecture
 
 ```
-┌─────────────────┐   cron 4h+5h+6h UTC ┌──────────────────────┐
+┌─────────────────┐ cron 4h/4h30/5h UTC ┌──────────────────────┐
 │ GitHub Actions  │────────────────────▶│ main.py (runner)     │
 │ (daily.yml)     │                     │                      │
 └─────────────────┘                     │  1. fetch Open-Meteo │
@@ -58,8 +58,8 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 
 ### Execution flow
 
-1. GitHub Actions triggers the workflow at 4h, 5h **and** 6h UTC (triple cron to cover 6 AM Paris primary + 7 AM backup, both summer and winter time).
-2. The script checks that it is **6 AM or 7 AM** Paris time — otherwise it exits silently (prevents duplicate sends). A manual run (`workflow_dispatch`) bypasses this guard via `FORCE_SEND=1`.
+1. GitHub Actions triggers the workflow at 4h00, 4h30 **and** 5h00 UTC (triple cron 30 min apart → 6h00 / 6h30 / 7h00 Paris in summer, 5h00 / 5h30 / 6h00 in winter).
+2. The script checks that the Paris hour is **6 or 7** — otherwise it exits silently (prevents out-of-window runs). A dedup file (`data/<today>.json`) ensures only the first of the three attempts actually sends. A manual run (`workflow_dispatch`) bypasses both via `FORCE_SEND=1`.
 3. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) for the day.
 4. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
 5. Compute daily aggregates + hail heuristic + jacket recommendation.
@@ -120,14 +120,15 @@ Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
 ### DST handling
 
-GitHub Actions cron runs **in UTC**. The target delivery times are **6 AM Paris** (primary) and **7 AM Paris** (backup):
+GitHub Actions cron runs **in UTC**. The target delivery window is **6h00 / 6h30 / 7h00 Paris** (3 attempts 30 min apart, because GitHub Actions sometimes delays or skips scheduled runs):
 
 | Paris time | UTC summer | UTC winter |
 |---|---|---|
-| 6 AM | 4h UTC | 5h UTC |
-| 7 AM | 5h UTC | 6h UTC |
+| 6h00 | 4h00 UTC | 5h00 UTC |
+| 6h30 | 4h30 UTC | 5h30 UTC |
+| 7h00 | 5h00 UTC | 6h00 UTC |
 
-Solution: **triple cron** (4h, 5h, 6h UTC) + a guard in the script that checks `datetime.now(Europe/Paris).hour in (6, 7)`, otherwise silent exit. A manual `workflow_dispatch` run sets `FORCE_SEND=1` and bypasses the guard. Simple, robust, no third-party library.
+Solution: **triple cron** (4h00, 4h30, 5h00 UTC) + a guard that checks `datetime.now(Europe/Paris).hour in (6, 7)` (else silent exit), plus a dedup on `data/<today>.json` so only the first successful attempt sends. A manual `workflow_dispatch` run sets `FORCE_SEND=1` and bypasses both. Simple, robust, no third-party library.
 
 ### "Yesterday's data" persistence
 

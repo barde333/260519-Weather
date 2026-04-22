@@ -2,12 +2,11 @@ name: Bulletin météo quotidien
 
 on:
   schedule:
-    # Couvre 6h Paris (primaire) + 7h Paris (backup), hiver et été.
-    # 6h Paris = 4h UTC (été) / 5h UTC (hiver)
-    # 7h Paris = 5h UTC (été) / 6h UTC (hiver)
+    # Triple tentative espacée de 30 min (été CEST): 6h00, 6h30, 7h00 Paris.
+    # En hiver (CET) ça glisse à 5h00, 5h30, 6h00 Paris.
     - cron: "0 4 * * *"
+    - cron: "30 4 * * *"
     - cron: "0 5 * * *"
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
