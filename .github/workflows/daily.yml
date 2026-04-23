@@ -2,11 +2,9 @@ name: Bulletin météo quotidien
 
 on:
   schedule:
-    # Triple tentative espacée de 30 min (été CEST): 6h00, 6h30, 7h00 Paris.
-    # En hiver (CET) ça glisse à 5h00, 5h30, 6h00 Paris.
-    - cron: "0 4 * * *"
-    - cron: "30 4 * * *"
-    - cron: "0 5 * * *"
+    # Filet de sécurité uniquement (trigger principal = cron Proxmox CT103 via gh workflow run).
+    # 6h00 UTC = 7h Paris (CEST) / 6h Paris (CET) — après le trigger Proxmox dans tous les cas.
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:

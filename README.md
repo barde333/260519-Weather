@@ -1,6 +1,6 @@
 # 260519-Weather — Daily Weather Bulletin via Telegram
 
-> An automated message every morning at **6:00, 6:30 or 7:00 AM** Paris time (3 attempts 30 min apart) with everything needed to choose what to wear and whether the day carries a risk of thunderstorm or hail in Saint-Ismier (38330, Isère, France).
+> An automated message every morning at **6:00 AM** Paris time with everything needed to choose what to wear and whether the day carries a risk of thunderstorm or hail in Saint-Ismier (38330, Isère, France).
 
 ## Problem solved
 
@@ -36,30 +36,34 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 ## Architecture
 
 ```
-┌─────────────────┐ cron 4h/4h30/5h UTC ┌──────────────────────┐
-│ GitHub Actions  │────────────────────▶│ main.py (runner)     │
-│ (daily.yml)     │                     │                      │
-└─────────────────┘                     │  1. fetch Open-Meteo │
-                                        │  2. extract 7        │
-                ┌──────────────────────┐│     slots + aggreg. │
-                │   Open-Meteo API     │◀┤  3. compute hail,   │
-                │ (free, no key)       │ │     jacket          │
-                └──────────────────────┘ │  4. load yesterday  │
-                                         │     (data/*.json)   │
-                ┌──────────────────────┐ │  5. format HTML     │
-                │  Telegram Bot API    │◀┤  6. send message    │
-                └──────────────────────┘ │  7. save today      │
-                         │               └──────────────────────┘
-                         ▼                          │
-                   📱 Message received              ▼
-                                          git commit + push
+┌─────────────────┐  gh workflow run   ┌──────────────────────────┐
+│ Proxmox CT103   │───────────────────▶│ GitHub Actions           │
+│ cron 6h Paris   │  (primary trigger) │ daily.yml                │
+└─────────────────┘                    └────────────┬─────────────┘
+                                                    │
+┌─────────────────┐  6h00 UTC          ┌────────────▼─────────────┐
+│ GH Actions cron │───────────────────▶│ main.py (runner)         │
+│ (safety net)    │                    │                           │
+└─────────────────┘                    │  1. fetch Open-Meteo      │
+                                       │  2. extract 7 slots +     │
+                ┌──────────────────┐   │     aggregates            │
+                │  Open-Meteo API  │◀──┤  3. compute hail, jacket  │
+                │  (free, no key)  │   │  4. load yesterday        │
+                └──────────────────┘   │     (data/*.json)         │
+                                       │  5. format HTML           │
+                ┌──────────────────┐   │  6. send message          │
+                │ Telegram Bot API │◀──┤  7. save today            │
+                └──────────────────┘   └────────────┬─────────────┘
+                        │                           │
+                        ▼                           ▼
+                  📱 Message received      git commit + push
                                           (data/YYYY-MM-DD.json)
 ```
 
 ### Execution flow
 
-1. GitHub Actions triggers the workflow at 4h00, 4h30 **and** 5h00 UTC (triple cron 30 min apart → 6h00 / 6h30 / 7h00 Paris in summer, 5h00 / 5h30 / 6h00 in winter).
-2. The script checks that the Paris hour is **6 or 7** — otherwise it exits silently (prevents out-of-window runs). A dedup file (`data/<today>.json`) ensures only the first of the three attempts actually sends. A manual run (`workflow_dispatch`) bypasses both via `FORCE_SEND=1`.
+1. A system cron on **Proxmox CT103** fires `gh workflow run daily.yml` at **6h00 Paris** (primary trigger). A single GitHub Actions `schedule` cron at 6h00 UTC (= 7h Paris summer / 6h Paris winter) acts as a **safety net** in case the Proxmox cron fails.
+2. The script checks that the Paris hour is **6 or 7** — otherwise it exits silently (prevents out-of-window runs). A dedup file (`data/<today>.json`) ensures only one run actually sends. A manual run (`workflow_dispatch`) bypasses both via `FORCE_SEND=1`.
 3. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) for the day.
 4. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
 5. Compute daily aggregates + hail heuristic + jacket recommendation.
@@ -120,15 +124,9 @@ Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
 ### DST handling
 
-GitHub Actions cron runs **in UTC**. The target delivery window is **6h00 / 6h30 / 7h00 Paris** (3 attempts 30 min apart, because GitHub Actions sometimes delays or skips scheduled runs):
+The primary trigger is a **system cron on Proxmox CT103** (`0 6 * * *` with `CRON_TZ=Europe/Paris`), which always fires at exactly 6h00 Paris regardless of DST — this eliminates the UTC/DST problem entirely.
 
-| Paris time | UTC summer | UTC winter |
-|---|---|---|
-| 6h00 | 4h00 UTC | 5h00 UTC |
-| 6h30 | 4h30 UTC | 5h30 UTC |
-| 7h00 | 5h00 UTC | 6h00 UTC |
-
-Solution: **triple cron** (4h00, 4h30, 5h00 UTC) + a guard that checks `datetime.now(Europe/Paris).hour in (6, 7)` (else silent exit), plus a dedup on `data/<today>.json` so only the first successful attempt sends. A manual `workflow_dispatch` run sets `FORCE_SEND=1` and bypasses both. Simple, robust, no third-party library.
+The GitHub Actions `schedule` (single cron at `0 6 * * *` UTC = 7h Paris summer / 6h Paris winter) is a **safety net only** — it fires ~1h after the Proxmox trigger at worst. The script's guard (`datetime.now(Europe/Paris).hour in (6, 7)`) and dedup (`data/<today>.json`) ensure only one message is sent even if both triggers fire.
 
 ### "Yesterday's data" persistence
 
