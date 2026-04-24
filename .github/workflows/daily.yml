@@ -2,9 +2,11 @@ name: Bulletin météo quotidien
 
 on:
   schedule:
-    # Filet de sécurité uniquement (trigger principal = cron Proxmox CT103 via gh workflow run).
-    # 6h00 UTC = 7h Paris (CEST) / 6h Paris (CET) — après le trigger Proxmox dans tous les cas.
-    - cron: "0 6 * * *"
+    # Filet de sécurité (trigger principal = cron Proxmox CT103 6h Paris via gh workflow run).
+    # Cible : 6h30 Paris toute l'année, 30 min après le cron Proxmox.
+    # Dédup via data/YYYY-MM-DD.json → no-op si le cron 6h a déjà envoyé.
+    - cron: "30 4 * * *"   # CEST (été) : 4h30 UTC = 6h30 Paris
+    - cron: "30 5 * * *"   # CET  (hiver) : 5h30 UTC = 6h30 Paris
   workflow_dispatch:
 
 permissions:

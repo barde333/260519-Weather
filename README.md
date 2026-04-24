@@ -41,7 +41,7 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 │ cron 6h Paris   │  (primary trigger) │ daily.yml                │
 └─────────────────┘                    └────────────┬─────────────┘
                                                     │
-┌─────────────────┐  6h00 UTC          ┌────────────▼─────────────┐
+┌─────────────────┐  6h30 Paris        ┌────────────▼─────────────┐
 │ GH Actions cron │───────────────────▶│ main.py (runner)         │
 │ (safety net)    │                    │                           │
 └─────────────────┘                    │  1. fetch Open-Meteo      │
@@ -62,7 +62,7 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 
 ### Execution flow
 
-1. A system cron on **Proxmox CT103** fires `gh workflow run daily.yml` at **6h00 Paris** (primary trigger). A single GitHub Actions `schedule` cron at 6h00 UTC (= 7h Paris summer / 6h Paris winter) acts as a **safety net** in case the Proxmox cron fails.
+1. A system cron on **Proxmox CT103** fires `gh workflow run daily.yml` at **6h00 Paris** (primary trigger). Two GitHub Actions `schedule` crons (`30 4` UTC CEST + `30 5` UTC CET) act as a **safety net at 6h30 Paris year-round** in case the Proxmox cron fails.
 2. The script checks that the Paris hour is **6 or 7** — otherwise it exits silently (prevents out-of-window runs). A dedup file (`data/<today>.json`) ensures only one run actually sends. A manual run (`workflow_dispatch`) bypasses both via `FORCE_SEND=1`.
 3. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) for the day.
 4. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
@@ -126,7 +126,7 @@ Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
 The primary trigger is a **system cron on Proxmox CT103** (`0 6 * * *` with `CRON_TZ=Europe/Paris`), which always fires at exactly 6h00 Paris regardless of DST — this eliminates the UTC/DST problem entirely.
 
-The GitHub Actions `schedule` (single cron at `0 6 * * *` UTC = 7h Paris summer / 6h Paris winter) is a **safety net only** — it fires ~1h after the Proxmox trigger at worst. The script's guard (`datetime.now(Europe/Paris).hour in (6, 7)`) and dedup (`data/<today>.json`) ensure only one message is sent even if both triggers fire.
+The GitHub Actions `schedule` (two crons: `30 4 * * *` UTC for CEST + `30 5 * * *` UTC for CET, both = 6h30 Paris) is a **safety net only** — it fires 30 min after the Proxmox trigger. The script's guard (`datetime.now(Europe/Paris).hour in (6, 7)`) and dedup (`data/<today>.json`) ensure only one message is sent even if both triggers fire.
 
 ### "Yesterday's data" persistence
 
