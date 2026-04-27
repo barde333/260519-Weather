@@ -94,6 +94,28 @@ Problème : les `schedule` GitHub Actions sont best-effort et régulièrement sk
 
 Total Partie C ≈ **5k tokens**.
 
+## Partie D — Fiabilisation long terme (triple trigger + watchdog)
+
+Problème observé 2026-04-25 : ni le cron Proxmox CT103 6h, ni le filet GH Actions 6h30 n'ont firé → silence total, pas d'alerte. Solution : ajouter un 3ᵉ trigger externe indépendant (cron-job.org) et un watchdog actif (healthchecks.io) qui alerte sur Telegram en cas de silence. Dédup déjà assurée par `data/YYYY-MM-DD.json` → un seul message reçu même si 3 triggers passent.
+
+| # | Statut | Description | Modèle | Tokens |
+|---|---|---|---|---|
+| 26 | ⬜ | Compte cron-job.org (gratuit, illimité) + job quotidien 6h05 Paris → POST `repos/barde333/260519-Weather/actions/workflows/daily.yml/dispatches` avec PAT GitHub (scope `workflow`) en header `Authorization` | Haiku | 1k |
+| 27 | ⬜ | Compte healthchecks.io (gratuit, 20 checks) + check "meteo-daily" cron `0 6 * * *` TZ Europe/Paris, grace 15 min, canal d'alerte = webhook Telegram (bot existant) | Haiku | 1k |
+| 28 | ⬜ | `main.py` : ajouter `requests.get(HEALTHCHECKS_URL)` à la toute fin du run réussi (après `save_today`) ; URL via env var `HEALTHCHECKS_URL` (Secret GitHub + var Proxmox CT103) | Sonnet | 2k |
+| 29 | ⬜ | Ajouter `HEALTHCHECKS_URL` dans GitHub Secrets + dans l'env de la crontab CT103 | Haiku | 0.5k |
+| 30 | ⬜ | Test : désactiver temporairement les 3 triggers une journée → vérifier réception alerte healthchecks.io sur Telegram à 6h15 | Sonnet | 1k |
+| 31 | ⬜ | Mettre à jour `README.md` (EN) section "Reliability" : 3 triggers + watchdog, schéma de la chaîne | Sonnet | 1.5k |
+
+Total Partie D ≈ **7k tokens**. Coût récurrent : **0€**.
+
+### Stack finale après D
+
+1. **Proxmox CT103** cron 6h00 Paris → `gh workflow run` (primaire)
+2. **cron-job.org** 6h05 Paris → GitHub API `dispatches` (secondaire, externe à GH+Proxmox)
+3. **GH Actions schedule** 6h30 Paris (filet, best-effort)
+4. **healthchecks.io** ping en fin de `main.py` → alerte Telegram si silence à 6h15
+
 ## Blocages connus
 
 - **`gh` CLI absent** : ni `gh` ni `brew` disponibles sur cette machine. Les étapes 19-22 doivent être faites manuellement sur GitHub ou après installation de `gh` (`brew install gh` ou [cli.github.com](https://cli.github.com)).

@@ -3,10 +3,13 @@ name: Bulletin météo quotidien
 on:
   schedule:
     # Filet de sécurité (trigger principal = cron Proxmox CT103 6h Paris via gh workflow run).
-    # Cible : 6h30 Paris toute l'année, 30 min après le cron Proxmox.
-    # Dédup via data/YYYY-MM-DD.json → no-op si le cron 6h a déjà envoyé.
-    - cron: "30 4 * * *"   # CEST (été) : 4h30 UTC = 6h30 Paris
-    - cron: "30 5 * * *"   # CET  (hiver) : 5h30 UTC = 6h30 Paris
+    # GH Actions ignore le DST → les 3 lignes tournent toute l'année. Le garde-fou
+    # horaire dans main.py (Paris ∈ {5,6}) filtre les firings hors créneau, et la
+    # dédup via data/YYYY-MM-DD.json garantit un envoi unique.
+    # Objectif : alerte reçue ≤ 7h Paris malgré les retards fréquents de GH Actions.
+    - cron: "0 3 * * *"   # CEST (été) : 5h Paris ✓ | CET (hiver) : 4h Paris ✗ rejeté
+    - cron: "0 4 * * *"   # CEST (été) : 6h Paris ✓ | CET (hiver) : 5h Paris ✓
+    - cron: "0 5 * * *"   # CEST (été) : 7h Paris ✗ rejeté | CET (hiver) : 6h Paris ✓
   workflow_dispatch:
 
 permissions:

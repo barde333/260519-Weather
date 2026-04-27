@@ -284,12 +284,13 @@ def main():
     """Orchestration du bulletin météo quotidien."""
     import datetime, os
 
-    # Garde : les crons UTC couvrent 4h/5h/6h, mais seuls ceux qui tombent
-    # sur 6h ou 7h Paris doivent envoyer. On autorise un bypass via
-    # FORCE_SEND=1 pour les déclenchements manuels (workflow_dispatch, local).
+    # Garde : les crons UTC couvrent plusieurs heures, mais seuls ceux qui tombent
+    # sur 5h ou 6h Paris doivent envoyer (objectif : alerte reçue ≤ 7h malgré le
+    # retard fréquent de GH Actions, qui peut atteindre ~1h).
+    # Bypass via FORCE_SEND=1 pour les déclenchements manuels (workflow_dispatch, local).
     if not os.environ.get("FORCE_SEND"):
         paris_hour = datetime.datetime.now(PARIS_TZ).hour
-        if paris_hour not in (6, 7):
+        if paris_hour not in (5, 6):
             logger.info(f"Hors créneau (Paris {paris_hour}h) → exit silencieux")
             return
 
