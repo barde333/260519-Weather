@@ -36,68 +36,73 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 ## Architecture
 
 ```
-┌─────────────────┐  gh workflow run   ┌──────────────────────────┐
-│ Proxmox CT103   │───────────────────▶│ GitHub Actions           │
-│ cron 6h Paris   │  (primary trigger) │ daily.yml                │
-└─────────────────┘                    └────────────┬─────────────┘
-                                                    │
-┌─────────────────┐  5h/6h Paris       ┌────────────▼─────────────┐
-│ GH Actions cron │───────────────────▶│ main.py (runner)         │
-│ (safety net)    │                    │                           │
-└─────────────────┘                    │  1. fetch Open-Meteo      │
-                                       │  2. extract 7 slots +     │
-                ┌──────────────────┐   │     aggregates            │
-                │  Open-Meteo API  │◀──┤  3. compute hail, jacket  │
-                │  (free, no key)  │   │  4. load yesterday        │
-                └──────────────────┘   │     (data/*.json)         │
-                                       │  5. format HTML           │
-                ┌──────────────────┐   │  6. send message          │
-                │ Telegram Bot API │◀──┤  7. save today            │
-                └──────────────────┘   └────────────┬─────────────┘
-                        │                           │
-                        ▼                           ▼
-                  📱 Message received      git commit + push
-                                          (data/YYYY-MM-DD.json)
+┌──────────────────────┐                ┌──────────────────────────┐
+│ Proxmox CT103        │                │ GitHub Actions safety net│
+│ cron 6h00 Paris      │                │ daily.yml — 3h/4h/5h UTC │
+│ → /opt/.../run.sh    │ (PRIMARY)      │ (fallback if CT103 down) │
+└──────────┬───────────┘                └────────────┬─────────────┘
+           │                                         │
+           │           ┌──────────────────┐          │
+           └──────────▶│  main.py runner  │◀─────────┘
+                       │                  │
+   ┌──────────────┐    │  1. fetch        │    ┌──────────────────┐
+   │ Open-Meteo   │◀───┤     Open-Meteo   │    │ Telegram Bot API │
+   │ (free, free) │    │  2. extract      │    │  sendMessage     │
+   └──────────────┘    │     7 slots      │    └────────▲─────────┘
+                       │  3. hail/jacket  │             │
+                       │  4. load yest.   │             │
+                       │  5. format HTML  │─────────────┘
+                       │  6. send         │
+                       │  7. save today   │       📱 Message received
+                       └──────────┬───────┘
+                                  │
+                                  ▼
+                       git commit + push data/YYYY-MM-DD.json
+                       (acts as dedup signal for the safety net)
 ```
 
 ### Execution flow
 
-1. A system cron on **Proxmox CT103** fires `gh workflow run daily.yml` at **6h00 Paris** (primary trigger). Three GitHub Actions `schedule` crons (`0 3`, `0 4`, `0 5` UTC) act as a **safety net** that always provides at least one valid firing window per season between 5h and 6h Paris.
-2. The script checks that the Paris hour is **5 or 6** — otherwise it exits silently (prevents out-of-window runs and absorbs GH Actions queue delays up to ~1h while keeping arrival ≤ 7h Paris). A dedup file (`data/<today>.json`) ensures only one run actually sends. A manual run (`workflow_dispatch`) bypasses both via `FORCE_SEND=1`.
-3. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) for the day.
-4. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
-5. Compute daily aggregates + hail heuristic + jacket recommendation.
-6. Read `data/<yesterday>.json` if present → compute Δmin/Δmax.
-7. Send Telegram message (HTML, `sendMessage`).
-8. Write `data/<today>.json` + auto-commit to the repo.
+1. **Primary path** — A system cron on **Proxmox CT103** (`0 6 * * *` with `CRON_TZ=Europe/Paris`) runs `/opt/260519-Weather/run.sh`, which loads `.env` and executes `main.py` directly. No queue, no orchestration: the message lands on Telegram within seconds of 6h00 Paris.
+2. **Safety net** — Three GitHub Actions `schedule` crons (`0 3`, `0 4`, `0 5` UTC) fire `main.py` on a fresh runner. They only matter if CT103 is unreachable; on a normal day, the dedup file (`data/<today>.json`) committed by CT103 is already present in the checkout → the script exits silently.
+3. **Guard** — `main.py` requires `datetime.now(Europe/Paris).hour ∈ {5, 6}` (filters off-window safety-net firings and absorbs GH Actions queue delays up to ~1h while keeping arrival ≤ 7h Paris). `FORCE_SEND=1` bypasses guard + dedup for manual runs.
+4. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine).
+5. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
+6. Compute daily aggregates + hail heuristic + jacket recommendation.
+7. Read `data/<yesterday>.json` if present → compute Δmin/Δmax.
+8. Send Telegram message (HTML, `sendMessage`).
+9. Write `data/<today>.json` and push (CT103: via `run.sh`; GH Actions: via the workflow's commit step).
 
 ## Stack
 
 | Component | Choice | Why |
 |---|---|---|
 | Weather data | [Open-Meteo](https://open-meteo.com) | Free, no API key, reliable European coverage |
-| Language | Python 3.12 (runner) / 3.9 (local) | Simplicity, `requests` ecosystem |
+| Language | Python 3.11 (CT103) / 3.12 (GH Actions) / 3.9 (local) | Simplicity, `requests` ecosystem |
 | Dependencies | `requests` only | Avoid bloat (`python-telegram-bot` replaced by direct POST) |
-| Scheduling | GitHub Actions cron | Free, zero infrastructure, no 24/7 server |
+| Primary scheduler | Proxmox CT103 system cron | No queue → guarantees delivery within seconds of 6h00 |
+| Safety-net scheduler | GitHub Actions cron | Free fallback if CT103 is down |
 | Notification | Telegram Bot API | Existing bot reused from project `260418-Telegram` |
-| Persistence | JSON committed to the repo (`data/`) | Ephemeral runner → auto-commit; bonus: public history |
-| Secrets | GitHub Secrets (prod) · macOS Keychain (local) | No secret in code, repo is safely public |
+| Persistence | JSON committed to the repo (`data/`) | Survives the ephemeral GH runner; doubles as dedup signal |
+| Secrets | `.env` on CT103 (chmod 600) · GitHub Secrets (safety net) · macOS Keychain (local) | No secret in code or git history |
 
 ## Architecture decisions
 
-### Why GitHub Actions and not Docker/server?
+### Why CT103 as primary, GH Actions as fallback?
 
-This project is a 10-second daily cron with no web service. A Docker container on a 24/7 server would be **overkill**. GitHub Actions provides:
-- An on-demand free runner
-- A built-in cron scheduler
-- Native secret management
-- Zero infrastructure to maintain
+GitHub Actions queues `schedule` jobs and frequently delays them by 30–60 min — sometimes more. With a 6h00 Paris target and a 7h00 hard cutoff, that queue is the bottleneck (a real incident: alert delivered at 8h00 on 2026-04-28). Running `main.py` **directly** on CT103 removes the queue entirely: the message arrives within seconds of the cron firing.
 
-Docker would make sense if there were an HTTP API, a dashboard, or a long-running process.
+GH Actions is kept as a free, zero-maintenance fallback for the days CT103 is unreachable.
+
+### Dedup contract between CT103 and GH Actions
+
+CT103 pushes `data/<today>.json` to `main` immediately after sending. The safety-net GH Actions jobs (which trail by 30–60 min) checkout the repo fresh, see the file, and exit silently. No double message, no shared lock needed — the git repo *is* the lock.
+
+If CT103 fails, no file is pushed → the next safety-net firing in the 5h–6h Paris window sends the bulletin.
 
 ### Why a public repo?
 
-No sensitive content in the code. Secrets (bot token, chat_id) are in **GitHub Secrets**, never committed. *Secret scanning* + *push protection* are enabled. Benefits: visible weather history, transparency, reusable by others.
+No sensitive content in the code. Secrets are stored out-of-band (`.env` on CT103, GitHub Secrets for the safety net, macOS Keychain locally). *Secret scanning* + *push protection* are enabled.
 
 ### Hail heuristic (XS/S/L/XL, no M)
 
@@ -124,20 +129,39 @@ Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
 ### DST handling
 
-The primary trigger is a **system cron on Proxmox CT103** (`0 6 * * *` with `CRON_TZ=Europe/Paris`), which always fires at exactly 6h00 Paris regardless of DST — this eliminates the UTC/DST problem entirely.
+CT103's cron header `CRON_TZ=Europe/Paris` makes `0 6 * * *` fire at exactly 6h00 Paris year-round (CET and CEST). No drift between summer and winter.
 
-The GitHub Actions `schedule` is a **safety net only**. Because GitHub Actions ignores DST, three UTC cron lines (`0 3`, `0 4`, `0 5`) run year-round; depending on the season, two of them fall in the valid Paris window (5h–6h) and one is filtered out by the script's guard (`datetime.now(Europe/Paris).hour in (5, 6)`). The dedup file (`data/<today>.json`) ensures only one message is sent even if multiple triggers fire. The window is intentionally set to 5h–6h Paris (not 6h–7h) so that even with GH Actions queue delays of up to ~1h, the alert arrives **before 7h Paris year-round**.
+GitHub Actions ignores DST, so the safety net uses three UTC lines (`0 3`, `0 4`, `0 5`) — depending on the season, two of them fall in the valid Paris window (5h–6h) and one is filtered out by the guard. The 5h–6h window (rather than 6h–7h) leaves room for ~1h of queue delay while still arriving before 7h Paris.
 
 ### "Yesterday's data" persistence
 
-The GitHub Actions runner is ephemeral — impossible to keep a file between two runs without an artifact. Solution: **auto-commit** the daily JSON to `data/` via `GITHUB_TOKEN` (permission `contents: write`). Benefits:
+GH Actions runners are ephemeral, so the daily JSON is **committed to `data/`**. Same on CT103 (via `run.sh`'s `git push`). Benefits:
 - Simple, native, zero dependency
 - Weather history browsable on GitHub
-- No external storage to manage
+- No external storage
+- The committed file doubles as the dedup signal between CT103 and the safety net
 
 ## Setup
 
-### GitHub Secrets
+### CT103 (primary)
+
+```bash
+# Clone on the host
+ssh root@192.168.2.64 "cd /opt && gh repo clone barde333/260519-Weather"
+
+# Drop the .env (chmod 600)
+cat > /opt/260519-Weather/.env << EOF
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+EOF
+
+# Cron line (CRON_TZ=Europe/Paris must be set at the top of the crontab)
+0 6 * * * /opt/260519-Weather/run.sh >> /var/log/weather.log 2>&1
+```
+
+`run.sh` does: `git pull --rebase` → load `.env` → `python3 main.py` → commit + push `data/<today>.json`.
+
+### GitHub Secrets (safety net)
 
 In **Settings → Secrets and variables → Actions**, add:
 
@@ -152,21 +176,22 @@ In **Settings → Secrets and variables → Actions**, add:
 pip install requests
 
 # Option A — environment variables
-TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy python3 main.py
+TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy FORCE_SEND=1 python3 main.py
 
 # Option B — macOS Keychain (automatic fallback)
 security add-generic-password -a "$USER" -s telegram-bot-token -w "THE_TOKEN"
 security add-generic-password -a "$USER" -s telegram-chat-id   -w "THE_CHAT_ID"
-python3 main.py
+FORCE_SEND=1 python3 main.py
 ```
 
-### Trigger a manual run
+### Trigger a manual run on the safety net
 
-Via the GitHub UI: *Actions* tab → *Bulletin météo quotidien* → *Run workflow*.
+GitHub UI: *Actions* tab → *Bulletin météo quotidien* → *Run workflow* (sets `FORCE_SEND=1`).
 
 ## Security
 
 - No hardcoded secret in the code or git history
+- `.env` on CT103 is `chmod 600`, owned by `root`, never committed (`.gitignore`)
 - *Secret scanning* + *push protection* enabled on the repo
 - The Telegram bot only sends to the configured `chat_id` (no inbound message listening)
 
