@@ -116,6 +116,30 @@ Total Partie D ≈ **7k tokens**. Coût récurrent : **0€**.
 3. **GH Actions schedule** 6h30 Paris (filet, best-effort)
 4. **healthchecks.io** ping en fin de `main.py` → alerte Telegram si silence à 6h15
 
+## Partie E — Post-mortem 2026-04-29 : CT103 silencieux + 3 runs GH filtrés
+
+Incident 2026-04-29 : CT103 n'a pas firé (aucun commit `data/2026-04-29.json` avant le pull du filet) **et** les 3 runs GH Actions ont été retardés en file (46/25/24 min) → tombés à 7h47/8h25/9h24 Paris → tous filtrés par le guard `hour ∈ {5,6}` (`Hors créneau (Paris 7h) → exit silencieux`, [run 25093017328](https://github.com/barde333/260519-Weather/actions/runs/25093017328)). Aucun bulletin reçu, aucune alerte. Trois axes de correction indépendants ci-dessous (1 = cause racine, 2 = renforcement filet, 3 = détection).
+
+| # | Statut | Description | Modèle | Tokens |
+|---|---|---|---|---|
+| 32 | ✅ | **(Point 1 — Réparer CT103)** Diagnostic SSH : CT103 était **sain** (uptime 9j, cron actif). Le cron a bien tiré à 06:00 UTC = **8h Paris CEST** car `CRON_TZ=Europe/Paris` est ignoré par ce daemon cron. Guard `{5,6}` → exit silencieux (`Hors créneau (Paris 8h)`). Cause racine = crontab en UTC non corrigée pour CEST, pas une panne. | Sonnet | 1.5k |
+| 33 | ✅ | **(Point 1 — Réparer CT103)** Crontab corrigée : `0 6 * * *` UTC (= 8h Paris CEST, hors guard) → `0 4 * * *` UTC (= 6h Paris CEST / 5h CET, dans le guard les deux saisons). `CRON_TZ` commenté. Test `FORCE_SEND=1` OK — bulletin envoyé, `data/2026-04-29.json` commité et poussé. | Sonnet | 2k |
+| 34 | ⬜ | **(Point 1 — Réparer CT103)** Ajouter sur CT103 un check `systemd-timer` ou cron de supervision qui pingue Telegram en cas d'échec de `run.sh` (sortie ≠ 0) — aujourd'hui un crash de `run.sh` est silencieux côté CT, on ne le détecte que via l'absence du message final. | Sonnet | 1.5k |
+| 35 | ⬜ | **(Point 2 — Cron `0 5 UTC` mort en CEST)** Constat : `0 5 UTC` = 7h Paris en CEST → hors guard `{5,6}` → ce 3ᵉ filet n'a **jamais** pu envoyer en été. Décision : remplacer par `0 2 UTC` (= 4h Paris CEST / 3h Paris CET), ce qui donne 3 tentatives toutes dans le guard avec ~1h de marge de queue chacune. Vérifier en hiver (CET) que `0 2/3/4 UTC` reste valide (3h/4h/5h Paris) ou ajuster. | Sonnet | 1k |
+| 36 | ⬜ | **(Point 2 — Cron `0 5 UTC` mort en CEST)** Éditer `.github/workflows/daily.yml` : remplacer la ligne `cron: '0 5 * * *'` par `cron: '0 2 * * *'`. Mettre à jour le commentaire DST en tête de workflow + section "DST handling" du `README.md` pour refléter les 3 nouveaux créneaux et la marge de queue. | Sonnet | 1k |
+| 37 | ⬜ | **(Point 2 — Cron `0 5 UTC` mort en CEST)** Validation : déclencher manuellement (`workflow_dispatch` avec `FORCE_SEND=1` désactivé) pour confirmer le passage du guard ; surveiller les 3 runs schedule du lendemain pour vérifier qu'au moins 1 passe le guard si CT103 est volontairement coupé. | Sonnet | 1k |
+| 38 | ⬜ | **(Point 3 — Alerte de non-livraison)** Choisir le porteur de l'alerte : option A = nouveau workflow GH Actions `watchdog.yml` à `0 5 * * *` UTC (= 7h Paris CEST) qui checkout `main` et vérifie l'existence de `data/<today>.json` ; option B = cron CT103 à 7h05 Paris (mais un CT103 down ne peut pas s'auto-alerter — option A préférée car indépendante). | Sonnet | 1k |
+| 39 | ⬜ | **(Point 3 — Alerte de non-livraison)** Rédiger `watchdog.yml` : checkout, test `[ -f data/$(TZ=Europe/Paris date +%Y-%m-%d).json ] || curl -X POST sendMessage` avec message « ⚠️ Bulletin météo non envoyé ce matin — vérifier CT103 et runs GH ». Réutiliser les Secrets `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`. | Sonnet | 1.5k |
+| 40 | ⬜ | **(Point 3 — Alerte de non-livraison)** Test E2E : sur une branche jetable, faire pointer le watchdog sur un dossier `data/` vide → confirmer réception de l'alerte Telegram. Puis merger sur `main`. Mettre à jour `README.md` section "Architecture" avec le 4ᵉ composant (watchdog) dans le schéma. | Sonnet | 1.5k |
+
+Total Partie E ≈ **12k tokens**. Coût récurrent : **0€** (tout sur infra existante).
+
+### Ordre d'exécution recommandé
+
+1. **Point 1 d'abord** (#32–#34) : sans CT103 fonctionnel, le filet GH porte seul la livraison alors qu'il n'a pas été conçu pour ça (cf. README, décision « CT103 primaire »).
+2. **Point 3 ensuite** (#38–#40) : garantit qu'un futur incident silencieux devient bruyant — prérequis pour pouvoir lever sereinement la pression sur le filet.
+3. **Point 2 en dernier** (#35–#37) : optimisation du filet, faible urgence une fois 1+3 en place.
+
 ## Blocages connus
 
 - **`gh` CLI absent** : ni `gh` ni `brew` disponibles sur cette machine. Les étapes 19-22 doivent être faites manuellement sur GitHub ou après installation de `gh` (`brew install gh` ou [cli.github.com](https://cli.github.com)).

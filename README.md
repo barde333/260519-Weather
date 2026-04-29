@@ -63,7 +63,7 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 
 ### Execution flow
 
-1. **Primary path** — A system cron on **Proxmox CT103** (`0 6 * * *` with `CRON_TZ=Europe/Paris`) runs `/opt/260519-Weather/run.sh`, which loads `.env` and executes `main.py` directly. No queue, no orchestration: the message lands on Telegram within seconds of 6h00 Paris.
+1. **Primary path** — A system cron on **Proxmox CT103** (`0 4 * * *` UTC = 6h00 Paris CEST / 5h00 CET) runs `/opt/260519-Weather/run.sh`, which loads `.env` and executes `main.py` directly. No queue, no orchestration: the message lands on Telegram within seconds of the cron firing.
 2. **Safety net** — Three GitHub Actions `schedule` crons (`0 3`, `0 4`, `0 5` UTC) fire `main.py` on a fresh runner. They only matter if CT103 is unreachable; on a normal day, the dedup file (`data/<today>.json`) committed by CT103 is already present in the checkout → the script exits silently.
 3. **Guard** — `main.py` requires `datetime.now(Europe/Paris).hour ∈ {5, 6}` (filters off-window safety-net firings and absorbs GH Actions queue delays up to ~1h while keeping arrival ≤ 7h Paris). `FORCE_SEND=1` bypasses guard + dedup for manual runs.
 4. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine).
@@ -129,7 +129,7 @@ Personal logic tailored to the recipient's wardrobe — not a generic rule.
 
 ### DST handling
 
-CT103's cron header `CRON_TZ=Europe/Paris` makes `0 6 * * *` fire at exactly 6h00 Paris year-round (CET and CEST). No drift between summer and winter.
+CT103's cron runs at `0 4 * * *` **UTC** (explicit, no TZ directive — the daemon did not honour `CRON_TZ`). This maps to **6h00 Paris CEST** (summer, UTC+2) and **5h00 Paris CET** (winter, UTC+1) — both inside the guard's `{5, 6}` window year-round.
 
 GitHub Actions ignores DST, so the safety net uses three UTC lines (`0 3`, `0 4`, `0 5`) — depending on the season, two of them fall in the valid Paris window (5h–6h) and one is filtered out by the guard. The 5h–6h window (rather than 6h–7h) leaves room for ~1h of queue delay while still arriving before 7h Paris.
 
@@ -155,8 +155,8 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 EOF
 
-# Cron line (CRON_TZ=Europe/Paris must be set at the top of the crontab)
-0 6 * * * /opt/260519-Weather/run.sh >> /var/log/weather.log 2>&1
+# Cron line — 0 4 UTC = 6h Paris CEST (summer) / 5h Paris CET (winter)
+0 4 * * * /opt/260519-Weather/run.sh >> /var/log/weather.log 2>&1
 ```
 
 `run.sh` does: `git pull --rebase` → load `.env` → `python3 main.py` → commit + push `data/<today>.json`.
