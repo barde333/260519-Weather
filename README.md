@@ -66,7 +66,7 @@ Opening a weather app every morning is friction: launch the app, navigate multip
 1. **Primary path** — A system cron on **Proxmox CT103** (`0 4 * * *` UTC = 6h00 Paris CEST / 5h00 CET) runs `/opt/260519-Weather/run.sh`, which loads `.env` and executes `main.py` directly. No queue, no orchestration: the message lands on Telegram within seconds of the cron firing.
 2. **Safety net** — Three GitHub Actions `schedule` crons (`0 3`, `0 4`, `0 5` UTC) fire `main.py` on a fresh runner. They only matter if CT103 is unreachable; on a normal day, the dedup file (`data/<today>.json`) committed by CT103 is already present in the checkout → the script exits silently.
 3. **Guard** — `main.py` requires `datetime.now(Europe/Paris).hour ∈ {5, 6}` (filters off-window safety-net firings and absorbs GH Actions queue delays up to ~1h while keeping arrival ≤ 7h Paris). `FORCE_SEND=1` bypasses guard + dedup for manual runs.
-4. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine).
+4. Call Open-Meteo (hourly: temp, precipitation, cloud cover, weathercode, sunshine) — **up to 4 attempts** with exponential backoff (5 s → 10 s → 20 s) on 502/503/504 and timeouts.
 5. Extract 7 slots: **8h, 10h, 12h, 14h, 16h, 18h, 20h**.
 6. Compute daily aggregates + hail heuristic + jacket recommendation.
 7. Read `data/<yesterday>.json` if present → compute Δmin/Δmax.
@@ -126,6 +126,19 @@ An honest proxy — not a professional forecast, but sufficient to decide whethe
 | > 20°C | None |
 
 Personal logic tailored to the recipient's wardrobe — not a generic rule.
+
+### Resilience — Open-Meteo retry
+
+Open-Meteo occasionally returns transient gateway errors (502 Bad Gateway). `fetch_meteo()` retries up to **4 times** with exponential backoff:
+
+| Attempt | Delay before |
+|---|---|
+| 1 | — (immediate) |
+| 2 | 5 s |
+| 3 | 10 s |
+| 4 | 20 s |
+
+Retried on: HTTP 502 / 503 / 504, `requests.Timeout`, `requests.ConnectionError`. Other HTTP errors (400, 401…) propagate immediately. Total worst-case overhead: ~35 s — well within the morning delivery window.
 
 ### DST handling
 
