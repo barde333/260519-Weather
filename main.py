@@ -105,8 +105,13 @@ def get_secrets():
     return token, chat_id
 
 
-def fetch_meteo():
-    """Appelle Open-Meteo et retourne le JSON brut pour la journée."""
+def fetch_meteo(max_retries=4, base_delay=5):
+    """Appelle Open-Meteo et retourne le JSON brut pour la journée.
+
+    Retry avec backoff exponentiel sur les erreurs transitoires (5xx, timeout).
+    """
+    import time
+
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
@@ -114,10 +119,33 @@ def fetch_meteo():
         "timezone": "Europe/Paris",
         "forecast_days": 1,
     }
-    logger.info("Appel Open-Meteo...")
-    response = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-    response.raise_for_status()
-    return response.json()
+
+    last_exc = None
+    for attempt in range(max_retries):
+        if attempt > 0:
+            delay = base_delay * (2 ** (attempt - 1))  # 5s, 10s, 20s
+            logger.warning(f"Tentative {attempt + 1}/{max_retries} dans {delay}s…")
+            time.sleep(delay)
+        try:
+            logger.info(f"Appel Open-Meteo (tentative {attempt + 1}/{max_retries})…")
+            response = requests.get(OPEN_METEO_URL, params=params, timeout=15)
+            if response.status_code in (502, 503, 504):
+                last_exc = requests.HTTPError(
+                    f"{response.status_code} Server Error: {response.reason} for url: {response.url}",
+                    response=response,
+                )
+                logger.warning(f"Erreur {response.status_code} — nouvelle tentative")
+                continue
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout as e:
+            last_exc = e
+            logger.warning(f"Timeout — nouvelle tentative")
+        except requests.exceptions.ConnectionError as e:
+            last_exc = e
+            logger.warning(f"Erreur réseau — nouvelle tentative")
+
+    raise last_exc
 
 
 def extract_hourly_data(meteo_data):
