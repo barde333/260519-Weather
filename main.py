@@ -107,6 +107,8 @@ def get_secrets():
 
 def fetch_meteo():
     """Appelle Open-Meteo et retourne le JSON brut pour la journée."""
+    import time
+
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
@@ -114,10 +116,19 @@ def fetch_meteo():
         "timezone": "Europe/Paris",
         "forecast_days": 1,
     }
-    logger.info("Appel Open-Meteo...")
-    response = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"Appel Open-Meteo (tentative {attempt}/{max_attempts})...")
+        try:
+            response = requests.get(OPEN_METEO_URL, params=params, timeout=(5, 30))
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as exc:
+            if attempt == max_attempts:
+                raise
+            wait = 2 ** (attempt - 1)  # 1s, 2s, 4s
+            logger.warning(f"Erreur Open-Meteo ({exc}), nouvelle tentative dans {wait}s...")
+            time.sleep(wait)
 
 
 def extract_hourly_data(meteo_data):
