@@ -117,6 +117,10 @@ Open-Meteo does not provide a direct "hail forecast". It is **derived from WMO c
 
 An honest proxy — not a professional forecast, but sufficient to decide whether to cancel a barbecue.
 
+### Open-Meteo timeout & retry
+
+`fetch_meteo()` uses a split timeout `(5s connect / 30s read)` and retries up to 4 times with exponential backoff (1 s, 2 s, 4 s) before raising. This absorbs transient slowdowns of the Open-Meteo API without triggering a Telegram error alert. Any `RequestException` (timeout, network error, 5xx) is retried; if all 4 attempts fail the exception propagates normally and the alert is sent.
+
 ### Jacket recommendation
 
 | Average temp (min+max)/2 | Jacket |
